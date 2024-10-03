@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ingredient Detection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        #optionsContainer, #videoContainer, #uploadContainer, #resultContainer {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        #video {
+            width: 320px;
+            height: 240px;
+            border: 2px solid black;
+            display: none;
+            margin-bottom: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border: none;
+            background-color: #4CAF50;
+            color: white;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        /* Remove display: none to make upload input visible */
+        #uploadImage {
+            margin-top: 10px;
+            display: inline-block; /* Changed from 'none' to 'inline-block' */
+        }
+
+        #detectedIngredients {
+            margin-top: 20px;
+            font-size: 18px;
+            color: blue;
+            text-align: left;
+            display: inline-block;
+        }
+
+        .ingredient-item {
+            margin: 5px 0;
+        }
+
+        #selectedIngredients {
+            margin-top: 20px;
+            font-size: 18px;
+            color: green;
+        }
+
+        /* Responsive design */
+        @media (max-width: 600px) {
+            #video {
+                width: 100%;
+                height: auto;
+            }
+
+            button {
+                width: 100%;
+                margin-bottom: 10px;
+            }
+
+            #detectedIngredients {
+                width: 100%;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Ingredient Detection API</h1>
+
+    <div id="optionsContainer">
+        <button id="captureImageOption">Capture Image</button>
+        <button id="uploadImageOption">Upload Image</button>
+    </div>
+
+    <div id="videoContainer">
+        <video id="video" autoplay></video>
+        <br>
+        <button id="captureButton">Capture</button>
+    </div>
+
+    <div id="uploadContainer">
+        <!-- Changed to trigger the file dialog when the button is clicked -->
+        <input type="file" id="uploadImage" accept="image/*">
+        <br>
+        <button id="processUpload">Upload</button>
+    </div>
+
+    <div id="resultContainer">
+        <div id="resultMessage"></div>
+        <div id="detectedIngredients"></div>
+        <div id="selectedIngredients"></div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const captureImageOption = document.getElementById('captureImageOption');
+        const uploadImageOption = document.getElementById('uploadImageOption');
+        const videoContainer = document.getElementById('videoContainer');
+        const uploadContainer = document.getElementById('uploadContainer');
+        const uploadImageInput = document.getElementById('uploadImage');
+        const processUploadButton = document.getElementById('processUpload');
+        const captureButton = document.getElementById('captureButton');
+        const resultMessage = document.getElementById('resultMessage');
+        const detectedIngredientsDiv = document.getElementById('detectedIngredients');
+        const selectedIngredientsDiv = document.getElementById('selectedIngredients');
+
+        let stream = null;
+
+        // Hide video and upload containers initially
+        videoContainer.style.display = 'none';
+        uploadContainer.style.display = 'none';
+
+        // Handle option selection
+        captureImageOption.onclick = () => {
+            // Show video container and hide upload container
+            videoContainer.style.display = 'block';
+            uploadContainer.style.display = 'none';
+            detectedIngredientsDiv.innerHTML = '';
+            selectedIngredientsDiv.innerHTML = '';
+            resultMessage.innerText = '';
+
+            // Start camera
+            if (navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(s => {
+                        stream = s;
+                        video.srcObject = stream;
+                        video.style.display = 'block';
+                    })
+                    .catch(err => {
+                        console.error("Error accessing camera: ", err);
+                        resultMessage.innerText = 'Error accessing camera.';
+                    });
+            } else {
+                alert("getUserMedia not supported by your browser.");
+            }
+        };
+
+        uploadImageOption.onclick = () => {
+            // Show upload container and hide video container
+            uploadContainer.style.display = 'block';
+            videoContainer.style.display = 'none';
+            detectedIngredientsDiv.innerHTML = '';
+            selectedIngredientsDiv.innerHTML = '';
+            resultMessage.innerText = '';
+
+            // Stop the camera if it's running
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                video.style.display = 'none';
+            }
+
+            // Optionally, automatically trigger the file dialog
+            // uploadImageInput.click();
+        };
+
+        // Function to send image data to backend
+        async function detectIngredients(imageData) {
+            try {
+                resultMessage.innerText = 'Processing image...';
+                detectedIngredientsDiv.innerHTML = '';
+                selectedIngredientsDiv.innerHTML = '';
+
+                const response = await fetch('http://10.200.28.199:5000/detect', { // Update URL if necessary
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ image: imageData }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                if (data.ingredients && Array.isArray(data.ingredients) && data.ingredients.length > 0) {
+                    displayDetectedIngredients(data.ingredients);
+                    resultMessage.innerText = 'Ingredients detected successfully!';
+                } else {
+                    displayNoIngredientsDetected();
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                resultMessage.innerText = 'An error occurred while detecting ingredients.';
+            }
+        }
+
+        // Function to display detected ingredients with selection options
+        function displayDetectedIngredients(ingredients) {
+            detectedIngredientsDiv.innerHTML = '';
+
+            if (ingredients.length === 1) {
+                detectedIngredientsDiv.innerHTML = `<p>Detected Ingredient: <strong>${ingredients[0]}</strong></p>`;
+                selectedIngredientsDiv.innerHTML = `<p>You selected: <strong>${ingredients[0]}</strong></p>`;
+                return;
+            }
+
+            // Multiple ingredients
+            detectedIngredientsDiv.innerHTML = '<p>Detected Ingredients:</p>';
+            const form = document.createElement('form');
+
+            ingredients.forEach(ingredient => {
+                const div = document.createElement('div');
+                div.classList.add('ingredient-item');
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = ingredient;
+                checkbox.name = 'ingredients';
+                checkbox.value = ingredient;
+
+                const label = document.createElement('label');
+                label.htmlFor = ingredient;
+                label.innerText = ingredient;
+
+                div.appendChild(checkbox);
+                div.appendChild(label);
+                form.appendChild(div);
+            });
+
+            const submitButton = document.createElement('button');
+            submitButton.type = 'button';
+            submitButton.innerText = 'Select Ingredients';
+            submitButton.style.marginTop = '10px';
+            submitButton.style.padding = '8px 16px';
+            submitButton.style.backgroundColor = '#4CAF50';
+            submitButton.style.color = 'white';
+            submitButton.style.border = 'none';
+            submitButton.style.borderRadius = '4px';
+            submitButton.style.cursor = 'pointer';
+            submitButton.onclick = () => {
+                const selected = Array.from(document.querySelectorAll('input[name="ingredients"]:checked')).map(cb => cb.value);
+                if (selected.length > 0) {
+                    selectedIngredientsDiv.innerText = `You selected: ${selected.join(', ')}`;
+                } else {
+                    selectedIngredientsDiv.innerText = 'No ingredients selected.';
+                }
+            };
+
+            form.appendChild(submitButton);
+            detectedIngredientsDiv.appendChild(form);
+        }
+
+        // Function to display no ingredients detected
+        function displayNoIngredientsDetected() {
+            detectedIngredientsDiv.innerHTML = '<p>No ingredients detected.</p>';
+            selectedIngredientsDiv.innerHTML = '';
+        }
+
+        // Function to capture image from video
+        captureButton.onclick = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 320;
+            canvas.height = video.videoHeight || 240;
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataURL = canvas.toDataURL('image/jpeg');
+            detectIngredients(dataURL);
+            resultMessage.innerText = 'Image captured and sent for detection.';
+        };
+
+        // Function to process uploaded image
+        processUploadButton.onclick = () => {
+            const file = uploadImageInput.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const imageData = reader.result; // Base64 image data
+                    detectIngredients(imageData);
+                    resultMessage.innerText = 'Image uploaded and sent for detection.';
+                };
+                reader.readAsDataURL(file);
+            } else {
+                alert('Please select an image to upload.');
+            }
+        };
+
+        // Optional: Automatically trigger file input when Upload Image option is clicked
+        /*
+        uploadImageOption.onclick = () => {
+            uploadContainer.style.display = 'block';
+            videoContainer.style.display = 'none';
+            detectedIngredientsDiv.innerHTML = '';
+            selectedIngredientsDiv.innerHTML = '';
+            resultMessage.innerText = '';
+
+            // Stop the camera if it's running
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                video.style.display = 'none';
+            }
+
+            // Automatically open the file dialog
+            uploadImageInput.click();
+        };
+        */
+
+        // Cleanup camera stream when the user navigates away or switches options
+        window.onbeforeunload = () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        };
+    </script>
+</body>
+</html>
